@@ -174,7 +174,7 @@ export default function ProfileDetailPage() {
                 {(profile.display_name || '？').charAt(0).toUpperCase()}
               </div>
               <div className="flex flex-col">
-                <h1 className="text-lg sm:text-xl font-semibold tracking-tight">
+                <h1 className="text-lg sm:text-xl font-semibold tracking-tight text-white">
                   {profile.display_name || 'ユーザー'}
                 </h1>
                 <div className="mt-1 inline-flex items-center gap-2 text-[11px] text-slate-400">
@@ -258,7 +258,7 @@ export default function ProfileDetailPage() {
               {(profile.display_name || '？').charAt(0).toUpperCase()}
             </div>
             <div className="flex flex-col">
-              <h1 className="text-lg sm:text-xl font-semibold tracking-tight">
+              <h1 className="text-lg sm:text-xl font-semibold tracking-tight text-white">
                 {profile.display_name || 'クリエイター'}
               </h1>
               <div className="mt-1 inline-flex items-center gap-2 text-[11px] text-slate-400">

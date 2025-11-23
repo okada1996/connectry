@@ -354,7 +354,7 @@ export default function RequestDetailPage() {
               <span className="h-1.5 w-1.5 rounded-full bg-pink-400" />
               <span>依頼詳細</span>
             </div>
-            <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">
+            <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-white">
               {request.title}
             </h1>
             <p className="text-[11px] text-slate-400">
