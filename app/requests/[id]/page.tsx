@@ -1,3 +1,4 @@
+// app/requests/[id]/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -34,6 +35,7 @@ type MessageRow = {
   sender_id: string;
   body: string;
   created_at: string;
+  is_read: boolean | null; // ← null も一応許容
 };
 
 type ViewModel = {
@@ -56,7 +58,6 @@ export default function RequestDetailPage() {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // ステータスとフラッシュメッセージをローカルで持つ
   const [status, setStatus] = useState<Status>('pending');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState(false);
@@ -79,7 +80,7 @@ export default function RequestDetailPage() {
 
         const currentUserId = user?.id ?? null;
 
-        // 2. リクエスト本体取得
+        // 2. リクエスト本体
         const { data: reqData, error: reqError } = await supabase
           .from('requests')
           .select('*')
@@ -115,7 +116,7 @@ export default function RequestDetailPage() {
           if (row.id === request.client_id) client = row;
         });
 
-        // 4. 作品タイトル（あれば）
+        // 4. 対象作品
         let work: WorkRow | null = null;
         if (request.work_id) {
           const { data: workData, error: workError } = await supabase
@@ -129,10 +130,10 @@ export default function RequestDetailPage() {
           }
         }
 
-        // 5. メッセージ一覧
+        // 5. メッセージ一覧（is_read を含める）
         const { data: msgData, error: msgError } = await supabase
           .from('messages')
-          .select('id, sender_id, body, created_at')
+          .select('id, sender_id, body, created_at, is_read')
           .eq('request_id', requestId)
           .order('created_at', { ascending: true });
 
@@ -140,7 +141,7 @@ export default function RequestDetailPage() {
           console.error('RequestDetail: messages 取得エラー', msgError.message);
         }
 
-        const messages = (msgData || []) as MessageRow[];
+        let messages = (msgData || []) as MessageRow[];
 
         const isCreator = !!currentUserId && currentUserId === request.creator_id;
         const isClient = !!currentUserId && currentUserId === request.client_id;
@@ -149,6 +150,24 @@ export default function RequestDetailPage() {
           setErrorMsg('この依頼を見る権限がありません。');
           setLoading(false);
           return;
+        }
+
+        // 🔹 相手からのメッセージを一括で既読にする
+        if (currentUserId) {
+          const { error: updateError } = await supabase
+            .from('messages')
+            .update({ is_read: true })
+            .eq('request_id', request.id)
+            .neq('sender_id', currentUserId); // ★ is_read 条件は付けない
+
+          if (updateError) {
+            console.error('RequestDetail: 既読更新エラー', updateError.message);
+          }
+
+          // ローカル状態も反映（相手からのメッセージを全部 true 扱い）
+          messages = messages.map((m) =>
+            m.sender_id === currentUserId ? m : { ...m, is_read: true }
+          );
         }
 
         setView({
@@ -181,7 +200,7 @@ export default function RequestDetailPage() {
       minute: '2-digit',
     });
 
-  // ステータス更新共通処理
+  // ステータス更新
   const updateStatus = async (next: Status, successMessage: string) => {
     if (!view) return;
 
@@ -201,7 +220,6 @@ export default function RequestDetailPage() {
       return;
     }
 
-    // ローカル状態を即反映
     setStatus(next);
     setView({
       ...view,
@@ -210,9 +228,7 @@ export default function RequestDetailPage() {
     setStatusMessage(successMessage);
     setUpdatingStatus(false);
 
-    setTimeout(() => {
-      setStatusMessage(null);
-    }, 3000);
+    setTimeout(() => setStatusMessage(null), 3000);
   };
 
   const handleAccept = () => {
@@ -221,11 +237,9 @@ export default function RequestDetailPage() {
       'この依頼を「受ける」として受付しました。メッセージで詳細を相談できます。'
     );
   };
-
   const handleReject = () => {
     void updateStatus('rejected', 'この依頼を「お断りする」として処理しました。');
   };
-
   const handleClose = () => {
     void updateStatus('closed', 'この依頼をクローズしました。');
   };
@@ -246,8 +260,9 @@ export default function RequestDetailPage() {
         request_id: view.request.id,
         sender_id: view.currentUserId,
         body,
+        is_read: false, // ★ 送信時は常に未読スタート
       })
-      .select('id, sender_id, body, created_at')
+      .select('id, sender_id, body, created_at, is_read')
       .single();
 
     if (error || !data) {
@@ -332,7 +347,7 @@ export default function RequestDetailPage() {
           </button>
         </div>
 
-        {/* 上部ヘッダー */}
+        {/* ヘッダー */}
         <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-2">
             <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-slate-200">
@@ -377,7 +392,6 @@ export default function RequestDetailPage() {
                     </button>
                   </>
                 )}
-
                 {status === 'accepted' && (
                   <button
                     type="button"
@@ -393,7 +407,7 @@ export default function RequestDetailPage() {
           </div>
         </header>
 
-        {/* ステータス変更のフラッシュメッセージ */}
+        {/* ステータス変更フラッシュ */}
         {statusMessage && (
           <div className="rounded-2xl border border-emerald-500/50 bg-emerald-500/10 px-4 py-3 text-[11px] text-emerald-100">
             {statusMessage}
@@ -408,9 +422,8 @@ export default function RequestDetailPage() {
         )}
 
         <section className="grid gap-6 lg:grid-cols-[1.4fr_1.1fr]">
-          {/* 左：メッセージスレッド */}
+          {/* 左：メッセージ */}
           <div className="space-y-4">
-            {/* 初回依頼内容 */}
             <div className="rounded-3xl border border-white/10 bg-slate-950/70 px-4 py-4 text-xs text-slate-200">
               <h2 className="mb-2 text-[13px] font-semibold text-slate-50">
                 初回の依頼内容
@@ -420,7 +433,6 @@ export default function RequestDetailPage() {
               </p>
             </div>
 
-            {/* メッセージ一覧 */}
             <div className="rounded-3xl border border-white/10 bg-slate-950/80 px-4 py-4 flex flex-col gap-3 max-h-[420px] overflow-y-auto">
               {messages.length === 0 ? (
                 <p className="text-[11px] text-slate-500">
@@ -434,23 +446,34 @@ export default function RequestDetailPage() {
                       ? creator?.display_name || 'クリエイター'
                       : client?.display_name || '依頼者';
 
+                  const isRead = !!m.is_read;
+
                   return (
                     <div
                       key={m.id}
                       className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}
                     >
-                      <div
-                        className={`max-w-[75%] rounded-2xl px-3 py-2 text-[11px] leading-relaxed ${
-                          isMe
-                            ? 'bg-gradient-to-r from-pink-500 to-sky-500 text-white'
-                            : 'bg-slate-800/90 text-slate-100'
-                        }`}
-                      >
-                        <div className="mb-1 flex items-center justify-between gap-2 text-[10px] opacity-80">
-                          <span>{sender}</span>
-                          <span>{formatDateTime(m.created_at)}</span>
+                      <div className="max-w-[75%]">
+                        <div
+                          className={`rounded-2xl px-3 py-2 text-[11px] leading-relaxed ${
+                            isMe
+                              ? 'bg-gradient-to-r from-pink-500 to-sky-500 text-white'
+                              : 'bg-slate-800/90 text-slate-100'
+                          }`}
+                        >
+                          <div className="mb-1 flex items-center justify-between gap-2 text-[10px] opacity-80">
+                            <span>{sender}</span>
+                            <span>{formatDateTime(m.created_at)}</span>
+                          </div>
+                          <p className="whitespace-pre-wrap">{m.body}</p>
                         </div>
-                        <p className="whitespace-pre-wrap">{m.body}</p>
+
+                        {/* 自分が送ったメッセージだけ既読表示 */}
+                        {isMe && (
+                          <div className="mt-1 text-[10px] text-right text-slate-400">
+                            {isRead ? '既読' : '未読'}
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -458,7 +481,6 @@ export default function RequestDetailPage() {
               )}
             </div>
 
-            {/* メッセージ送信フォーム */}
             {view.currentUserId && status !== 'rejected' && status !== 'closed' && (
               <div className="rounded-3xl border border-white/10 bg-slate-950/80 px-4 py-3 space-y-2 text-[11px]">
                 <p className="text-slate-400">
@@ -485,7 +507,7 @@ export default function RequestDetailPage() {
             )}
           </div>
 
-          {/* 右：依頼概要・相手情報 */}
+          {/* 右：依頼概要 */}
           <aside className="space-y-4 text-xs">
             <div className="rounded-3xl border border-white/10 bg-slate-950/80 px-4 py-4">
               <h2 className="mb-2 text-[13px] font-semibold text-slate-50">

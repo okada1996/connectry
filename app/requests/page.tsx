@@ -5,6 +5,8 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
+type Role = 'creator' | 'client' | null;
+
 type RequestRow = {
   id: string;
   creator_id: string;
@@ -33,6 +35,7 @@ export default function RequestsPage() {
   const router = useRouter();
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<Role>(null);
   const [activeTab, setActiveTab] = useState<Tab>('received');
 
   const [requests, setRequests] = useState<RequestRow[]>([]);
@@ -42,7 +45,7 @@ export default function RequestsPage() {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // ログインユーザー取得
+  // ログインユーザー & ロール取得
   useEffect(() => {
     const init = async () => {
       const {
@@ -50,11 +53,36 @@ export default function RequestsPage() {
       } = await supabase.auth.getUser();
 
       if (!user) {
-        // 未ログインならログイン画面へ
         router.push('/auth/login?next=/requests');
         return;
       }
+
       setCurrentUserId(user.id);
+
+      // profiles.role を取得してタブ初期値を決める
+      const { data: prof, error: profError } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+      if (profError) {
+        console.error('RequestsPage: profiles 取得エラー', profError.message);
+        setUserRole(null);
+        // 役割不明ならデフォルト（受けた依頼）
+        setActiveTab('received');
+        return;
+      }
+
+      const role = (prof?.role as Role) ?? null;
+      setUserRole(role);
+
+      // 依頼者なら「送った依頼」タブをデフォルトにする
+      if (role === 'client') {
+        setActiveTab('sent');
+      } else {
+        setActiveTab('received');
+      }
     };
 
     void init();
@@ -183,6 +211,13 @@ export default function RequestsPage() {
       ? 'まだ受けた依頼はありません。'
       : 'まだ送った依頼はありません。';
 
+  const isCreator = userRole === 'creator';
+  const isClient = userRole === 'client';
+
+  const subtitle = isClient
+    ? 'あなたが送った依頼を一覧で確認できます。'
+    : 'あなたが送った依頼 / 受けた依頼を一覧で確認できます。';
+
   return (
     <div className="min-h-[calc(100vh-56px)] bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-50">
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-6 sm:px-6 lg:px-8">
@@ -192,24 +227,26 @@ export default function RequestsPage() {
             <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">
               依頼一覧
             </h1>
-            <p className="mt-1 text-xs text-slate-400">
-              あなたが送った依頼 / 受けた依頼を一覧で確認できます。
-            </p>
+            <p className="mt-1 text-xs text-slate-400">{subtitle}</p>
           </div>
 
           {/* タブ */}
           <div className="inline-flex items-center gap-2 rounded-full bg-slate-900/80 p-1 text-xs border border-slate-700/70">
-            <button
-              type="button"
-              onClick={() => setActiveTab('received')}
-              className={`rounded-full px-3 py-1.5 transition ${
-                activeTab === 'received'
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-300 hover:text-white'
-              }`}
-            >
-              受けた依頼
-            </button>
+            {/* クリエイターだけ「受けた依頼」を表示 */}
+            {isCreator && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('received')}
+                className={`rounded-full px-3 py-1.5 transition ${
+                  activeTab === 'received'
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                受けた依頼
+              </button>
+            )}
+            {/* 全員：送った依頼 */}
             <button
               type="button"
               onClick={() => setActiveTab('sent')}
@@ -244,12 +281,12 @@ export default function RequestsPage() {
           ) : (
             <ul className="divide-y divide-slate-800/80">
               {requests.map((req) => {
-                const isCreator = currentUserId === req.creator_id;
-                const otherUserId = isCreator ? req.client_id : req.creator_id;
+                const isCreatorSide = currentUserId === req.creator_id;
+                const otherUserId = isCreatorSide ? req.client_id : req.creator_id;
                 const otherProfile = profilesMap[otherUserId];
                 const otherName =
                   otherProfile?.display_name ||
-                  (isCreator ? '依頼者' : 'クリエイター');
+                  (isCreatorSide ? '依頼者' : 'クリエイター');
 
                 const work = req.work_id ? worksMap[req.work_id] : undefined;
 
@@ -270,7 +307,7 @@ export default function RequestsPage() {
                               {req.title}
                             </p>
                             <p className="text-[11px] text-slate-400 truncate">
-                              {isCreator
+                              {isCreatorSide
                                 ? `依頼者：${otherName}`
                                 : `クリエイター：${otherName}`}
                             </p>

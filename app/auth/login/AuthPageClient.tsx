@@ -84,7 +84,7 @@ export default function AuthPageClient() {
 
           <div className="space-y-4">
             <h1 className="text-3xl lg:text-4xl font-semibold tracking-tight">
-              <span className="bg-slate-950/70 px-1.5 py-0.5 rounded-md">
+            <span className="bg-slate-950/70 px-1.5 py-0.5 rounded-md text-white">
                 フォロワー数じゃなくて、
               </span>
               <br />
